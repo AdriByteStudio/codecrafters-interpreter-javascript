@@ -379,6 +379,19 @@ class Assign extends Expr {
   }
 }
 
+class Logical extends Expr {
+  constructor(left, operator, right) {
+    super();
+    this.left = left;
+    this.operator = operator;
+    this.right = right;
+  }
+
+  accept(visitor) {
+    return visitor.visitLogicalExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -626,7 +639,7 @@ class Parser {
   }
 
   assignment() {
-    const expr = this.equality();
+    const expr = this.or();
 
     if (this.match(TokenType.EQUAL)) {
       const equals = this.previous();
@@ -638,6 +651,30 @@ class Parser {
       }
 
       this.error(equals, "Invalid assignment target.");
+    }
+
+    return expr;
+  }
+
+  or() {
+    let expr = this.and();
+
+    while (this.match(TokenType.OR)) {
+      const operator = this.previous();
+      const right = this.and();
+      expr = new Logical(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  and() {
+    let expr = this.equality();
+
+    while (this.match(TokenType.AND)) {
+      const operator = this.previous();
+      const right = this.equality();
+      expr = new Logical(expr, operator, right);
     }
 
     return expr;
@@ -808,6 +845,10 @@ class AstPrinter {
     return this.parenthesize("=", new Variable(expr.name), expr.value);
   }
 
+  visitLogicalExpr(expr) {
+    return this.parenthesize(expr.operator.lexeme, expr.left, expr.right);
+  }
+
   parenthesize(name, ...exprs) {
     let builder = `(${name}`;
     for (const expr of exprs) {
@@ -975,6 +1016,18 @@ class Interpreter {
 
     // Unreachable.
     return null;
+  }
+
+  visitLogicalExpr(expr) {
+    const left = this.evaluate(expr.left);
+
+    if (expr.operator.type === TokenType.OR) {
+      if (this.isTruthy(left)) return left;
+    } else {
+      if (!this.isTruthy(left)) return left;
+    }
+
+    return this.evaluate(expr.right);
   }
 
   isTruthy(object) {
