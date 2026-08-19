@@ -34,6 +34,10 @@ const TokenType = {
   EQUAL_EQUAL: "EQUAL_EQUAL",
   BANG: "BANG",
   BANG_EQUAL: "BANG_EQUAL",
+  LESS: "LESS",
+  LESS_EQUAL: "LESS_EQUAL",
+  GREATER: "GREATER",
+  GREATER_EQUAL: "GREATER_EQUAL",
   EOF: "EOF",
 };
 
@@ -120,6 +124,20 @@ class Scanner {
           this.addToken(TokenType.BANG_EQUAL);
         } else {
           this.addToken(TokenType.BANG);
+        }
+        break;
+      case "<":
+        if (this.match("=")) {
+          this.addToken(TokenType.LESS_EQUAL);
+        } else {
+          this.addToken(TokenType.LESS);
+        }
+        break;
+      case ">":
+        if (this.match("=")) {
+          this.addToken(TokenType.GREATER_EQUAL);
+        } else {
+          this.addToken(TokenType.GREATER);
         }
         break;
       case " ":
