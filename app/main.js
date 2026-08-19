@@ -453,6 +453,18 @@ class IfStmt extends Stmt {
   }
 }
 
+class WhileStmt extends Stmt {
+  constructor(condition, body) {
+    super();
+    this.condition = condition;
+    this.body = body;
+  }
+
+  accept(visitor) {
+    return visitor.visitWhileStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -556,6 +568,7 @@ class Parser {
   statement() {
     if (this.match(TokenType.PRINT)) return this.printStatement();
     if (this.match(TokenType.IF)) return this.ifStatement();
+    if (this.match(TokenType.WHILE)) return this.whileStatement();
     if (this.match(TokenType.LEFT_BRACE)) return new BlockStmt(this.block());
     return this.expressionStatement();
   }
@@ -572,6 +585,15 @@ class Parser {
     }
 
     return new IfStmt(condition, thenBranch, elseBranch);
+  }
+
+  whileStatement() {
+    this.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.");
+    const condition = this.expression();
+    this.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.");
+    const body = this.statement();
+
+    return new WhileStmt(condition, body);
   }
 
   block() {
@@ -917,6 +939,13 @@ class Interpreter {
       this.execute(stmt.thenBranch);
     } else if (stmt.elseBranch !== null) {
       this.execute(stmt.elseBranch);
+    }
+    return null;
+  }
+
+  visitWhileStmt(stmt) {
+    while (this.isTruthy(this.evaluate(stmt.condition))) {
+      this.execute(stmt.body);
     }
     return null;
   }
