@@ -355,6 +355,23 @@ class Binary extends Expr {
   }
 }
 
+let hadError = false;
+
+function report(line, where, message) {
+  console.error(`[line ${line}] Error${where}: ${message}`);
+  hadError = true;
+}
+
+function loxError(token, message) {
+  if (token.type === TokenType.EOF) {
+    report(token.line, " at end", message);
+  } else {
+    report(token.line, ` at '${token.lexeme}'`, message);
+  }
+}
+
+class ParseError extends Error {}
+
 class Parser {
   constructor(tokens) {
     this.tokens = tokens;
@@ -365,7 +382,8 @@ class Parser {
     try {
       return this.expression();
     } catch (error) {
-      return null;
+      if (error instanceof ParseError) return null;
+      throw error;
     }
   }
 
@@ -453,7 +471,12 @@ class Parser {
       return new Grouping(expr);
     }
 
-    throw new Error("Expect expression.");
+    throw this.error(this.peek(), "Expect expression.");
+  }
+
+  error(token, message) {
+    loxError(token, message);
+    return new ParseError();
   }
 
   match(...types) {
@@ -468,7 +491,7 @@ class Parser {
 
   consume(type, message) {
     if (this.check(type)) return this.advance();
-    throw new Error(message);
+    throw this.error(this.peek(), message);
   }
 
   check(type) {
@@ -544,6 +567,11 @@ if (command === "tokenize") {
   const tokens = scanner.scanTokens();
   const parser = new Parser(tokens);
   const expression = parser.parse();
+
+  if (hadError) {
+    process.exit(65);
+  }
+
   const printer = new AstPrinter();
   console.log(printer.print(expression));
 } else {
