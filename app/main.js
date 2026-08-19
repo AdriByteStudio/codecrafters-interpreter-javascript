@@ -30,6 +30,8 @@ const TokenType = {
   PLUS: "PLUS",
   SEMICOLON: "SEMICOLON",
   STAR: "STAR",
+  EQUAL: "EQUAL",
+  EQUAL_EQUAL: "EQUAL_EQUAL",
   EOF: "EOF",
 };
 
@@ -104,6 +106,13 @@ class Scanner {
       case "*":
         this.addToken(TokenType.STAR);
         break;
+      case "=":
+        if (this.match("=")) {
+          this.addToken(TokenType.EQUAL_EQUAL);
+        } else {
+          this.addToken(TokenType.EQUAL);
+        }
+        break;
       case " ":
       case "\r":
       case "\t":
@@ -125,6 +134,14 @@ class Scanner {
   advance() {
     this.current++;
     return this.source.charAt(this.current - 1);
+  }
+
+  match(expected) {
+    if (this.isAtEnd()) return false;
+    if (this.source.charAt(this.current) !== expected) return false;
+
+    this.current++;
+    return true;
   }
 
   addToken(type, literal = null) {
