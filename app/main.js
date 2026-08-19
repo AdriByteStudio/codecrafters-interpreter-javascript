@@ -39,6 +39,7 @@ const TokenType = {
   LESS_EQUAL: "LESS_EQUAL",
   GREATER: "GREATER",
   GREATER_EQUAL: "GREATER_EQUAL",
+  STRING: "STRING",
   EOF: "EOF",
 };
 
@@ -151,6 +152,9 @@ class Scanner {
           this.addToken(TokenType.GREATER);
         }
         break;
+      case '"':
+        this.string();
+        break;
       case " ":
       case "\r":
       case "\t":
@@ -185,6 +189,25 @@ class Scanner {
   peek() {
     if (this.isAtEnd()) return "\0";
     return this.source.charAt(this.current);
+  }
+
+  string() {
+    while (this.peek() !== '"' && !this.isAtEnd()) {
+      if (this.peek() === "\n") this.line++;
+      this.advance();
+    }
+
+    if (this.isAtEnd()) {
+      this.reportError("Unterminated string.");
+      return;
+    }
+
+    // The closing ".
+    this.advance();
+
+    // Trim the surrounding quotes.
+    const value = this.source.substring(this.start + 1, this.current - 1);
+    this.addToken(TokenType.STRING, value);
   }
 
   addToken(type, literal = null) {
