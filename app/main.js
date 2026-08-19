@@ -24,6 +24,12 @@ const TokenType = {
   RIGHT_PAREN: "RIGHT_PAREN",
   LEFT_BRACE: "LEFT_BRACE",
   RIGHT_BRACE: "RIGHT_BRACE",
+  COMMA: "COMMA",
+  DOT: "DOT",
+  MINUS: "MINUS",
+  PLUS: "PLUS",
+  SEMICOLON: "SEMICOLON",
+  STAR: "STAR",
   EOF: "EOF",
 };
 
@@ -78,6 +84,24 @@ class Scanner {
         break;
       case "}":
         this.addToken(TokenType.RIGHT_BRACE);
+        break;
+      case ",":
+        this.addToken(TokenType.COMMA);
+        break;
+      case ".":
+        this.addToken(TokenType.DOT);
+        break;
+      case "-":
+        this.addToken(TokenType.MINUS);
+        break;
+      case "+":
+        this.addToken(TokenType.PLUS);
+        break;
+      case ";":
+        this.addToken(TokenType.SEMICOLON);
+        break;
+      case "*":
+        this.addToken(TokenType.STAR);
         break;
       case " ":
       case "\r":
