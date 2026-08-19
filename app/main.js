@@ -1631,9 +1631,14 @@ class Resolver {
     const enclosingClass = this.currentClass;
     this.currentClass = "CLASS";
 
+    this.beginScope();
+    this.scopes[this.scopes.length - 1].set("this", true);
+
     for (const method of stmt.methods) {
       this.resolveFunction(method, "METHOD");
     }
+
+    this.endScope();
 
     this.currentClass = enclosingClass;
     return null;
