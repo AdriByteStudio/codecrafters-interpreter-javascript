@@ -416,6 +416,31 @@ class This extends Expr {
   }
 }
 
+class Get extends Expr {
+  constructor(object, name) {
+    super();
+    this.object = object;
+    this.name = name;
+  }
+
+  accept(visitor) {
+    return visitor.visitGetExpr(this);
+  }
+}
+
+class Set extends Expr {
+  constructor(object, name, value) {
+    super();
+    this.object = object;
+    this.name = name;
+    this.value = value;
+  }
+
+  accept(visitor) {
+    return visitor.visitSetExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -839,6 +864,9 @@ class Parser {
       if (expr instanceof Variable) {
         const name = expr.name;
         return new Assign(name, value);
+      } else if (expr instanceof Get) {
+        const get = expr;
+        return new Set(get.object, get.name, value);
       }
 
       this.error(equals, "Invalid assignment target.");
@@ -942,6 +970,12 @@ class Parser {
     while (true) {
       if (this.match(TokenType.LEFT_PAREN)) {
         expr = this.finishCall(expr);
+      } else if (this.match(TokenType.DOT)) {
+        const name = this.consume(
+          TokenType.IDENTIFIER,
+          "Expect property name after '.'."
+        );
+        expr = new Get(expr, name);
       } else {
         break;
       }
@@ -1081,6 +1115,19 @@ class AstPrinter {
 
   visitThisExpr(expr) {
     return "this";
+  }
+
+  visitGetExpr(expr) {
+    return this.parenthesize(".", expr.object, new Literal(expr.name.lexeme));
+  }
+
+  visitSetExpr(expr) {
+    return this.parenthesize(
+      "=",
+      expr.object,
+      new Literal(expr.name.lexeme),
+      expr.value
+    );
   }
 
   parenthesize(name, ...exprs) {
@@ -1344,6 +1391,27 @@ class Interpreter {
 
   visitThisExpr(expr) {
     return this.lookUpVariable(expr.keyword, expr);
+  }
+
+  visitGetExpr(expr) {
+    const object = this.evaluate(expr.object);
+    if (object instanceof LoxInstance) {
+      return object.get(expr.name);
+    }
+
+    throw new RuntimeError(expr.name, "Only instances have properties.");
+  }
+
+  visitSetExpr(expr) {
+    const object = this.evaluate(expr.object);
+
+    if (!(object instanceof LoxInstance)) {
+      throw new RuntimeError(expr.name, "Only instances have fields.");
+    }
+
+    const value = this.evaluate(expr.value);
+    object.set(expr.name, value);
+    return value;
   }
 
   visitAssignExpr(expr) {
@@ -1625,6 +1693,17 @@ class Resolver {
     }
 
     this.resolveLocal(expr, expr.keyword);
+    return null;
+  }
+
+  visitGetExpr(expr) {
+    this.resolveExpr(expr.object);
+    return null;
+  }
+
+  visitSetExpr(expr) {
+    this.resolveExpr(expr.value);
+    this.resolveExpr(expr.object);
     return null;
   }
 
