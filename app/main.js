@@ -32,6 +32,8 @@ const TokenType = {
   STAR: "STAR",
   EQUAL: "EQUAL",
   EQUAL_EQUAL: "EQUAL_EQUAL",
+  BANG: "BANG",
+  BANG_EQUAL: "BANG_EQUAL",
   EOF: "EOF",
 };
 
@@ -111,6 +113,13 @@ class Scanner {
           this.addToken(TokenType.EQUAL_EQUAL);
         } else {
           this.addToken(TokenType.EQUAL);
+        }
+        break;
+      case "!":
+        if (this.match("=")) {
+          this.addToken(TokenType.BANG_EQUAL);
+        } else {
+          this.addToken(TokenType.BANG);
         }
         break;
       case " ":
