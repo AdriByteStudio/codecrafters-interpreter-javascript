@@ -22,6 +22,8 @@ const fileContent = fs.readFileSync(filename, "utf8");
 const TokenType = {
   LEFT_PAREN: "LEFT_PAREN",
   RIGHT_PAREN: "RIGHT_PAREN",
+  LEFT_BRACE: "LEFT_BRACE",
+  RIGHT_BRACE: "RIGHT_BRACE",
   EOF: "EOF",
 };
 
@@ -70,6 +72,12 @@ class Scanner {
         break;
       case ")":
         this.addToken(TokenType.RIGHT_PAREN);
+        break;
+      case "{":
+        this.addToken(TokenType.LEFT_BRACE);
+        break;
+      case "}":
+        this.addToken(TokenType.RIGHT_BRACE);
         break;
       case " ":
       case "\r":
