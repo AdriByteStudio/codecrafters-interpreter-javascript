@@ -392,6 +392,19 @@ class Logical extends Expr {
   }
 }
 
+class Call extends Expr {
+  constructor(callee, paren, args) {
+    super();
+    this.callee = callee;
+    this.paren = paren;
+    this.args = args;
+  }
+
+  accept(visitor) {
+    return visitor.visitCallExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -805,7 +818,40 @@ class Parser {
       return new Unary(operator, right);
     }
 
-    return this.primary();
+    return this.call();
+  }
+
+  call() {
+    let expr = this.primary();
+
+    while (true) {
+      if (this.match(TokenType.LEFT_PAREN)) {
+        expr = this.finishCall(expr);
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  finishCall(callee) {
+    const args = [];
+    if (!this.check(TokenType.RIGHT_PAREN)) {
+      do {
+        if (args.length >= 255) {
+          this.error(this.peek(), "Can't have more than 255 arguments.");
+        }
+        args.push(this.expression());
+      } while (this.match(TokenType.COMMA));
+    }
+
+    const paren = this.consume(
+      TokenType.RIGHT_PAREN,
+      "Expect ')' after arguments."
+    );
+
+    return new Call(callee, paren, args);
   }
 
   primary() {
@@ -912,6 +958,10 @@ class AstPrinter {
     return this.parenthesize(expr.operator.lexeme, expr.left, expr.right);
   }
 
+  visitCallExpr(expr) {
+    return this.parenthesize("call", expr.callee, ...expr.args);
+  }
+
   parenthesize(name, ...exprs) {
     let builder = `(${name}`;
     for (const expr of exprs) {
@@ -929,9 +979,34 @@ class RuntimeError extends Error {
   }
 }
 
+class LoxCallable {
+  arity() {
+    throw new Error("Not implemented");
+  }
+
+  call(interpreter, args) {
+    throw new Error("Not implemented");
+  }
+}
+
+class Clock extends LoxCallable {
+  arity() {
+    return 0;
+  }
+
+  call(interpreter, args) {
+    return Date.now() / 1000.0;
+  }
+
+  toString() {
+    return "<native fn>";
+  }
+}
+
 class Interpreter {
   constructor() {
     this.environment = new Environment();
+    this.environment.define("clock", new Clock());
   }
 
   interpret(statements) {
@@ -1098,6 +1173,29 @@ class Interpreter {
     }
 
     return this.evaluate(expr.right);
+  }
+
+  visitCallExpr(expr) {
+    const callee = this.evaluate(expr.callee);
+
+    const args = [];
+    for (const arg of expr.args) {
+      args.push(this.evaluate(arg));
+    }
+
+    if (!(callee instanceof LoxCallable)) {
+      throw new RuntimeError(expr.paren, "Can only call functions and classes.");
+    }
+
+    const fn = callee;
+    if (args.length !== fn.arity()) {
+      throw new RuntimeError(
+        expr.paren,
+        `Expected ${fn.arity()} arguments but got ${args.length}.`
+      );
+    }
+
+    return fn.call(this, args);
   }
 
   isTruthy(object) {
