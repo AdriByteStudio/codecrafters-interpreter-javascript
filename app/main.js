@@ -562,6 +562,22 @@ class Environment {
 
     throw new RuntimeError(name, `Undefined variable '${name.lexeme}'.`);
   }
+
+  ancestor(distance) {
+    let environment = this;
+    for (let i = 0; i < distance; i++) {
+      environment = environment.enclosing;
+    }
+    return environment;
+  }
+
+  getAt(distance, name) {
+    return this.ancestor(distance).values.get(name);
+  }
+
+  assignAt(distance, name, value) {
+    this.ancestor(distance).values.set(name.lexeme, value);
+  }
 }
 
 class Parser {
@@ -1108,6 +1124,7 @@ class Interpreter {
     this.globals = new Environment();
     this.globals.define("clock", new Clock());
     this.environment = this.globals;
+    this.locals = new Map();
   }
 
   interpret(statements) {
@@ -1202,13 +1219,33 @@ class Interpreter {
   }
 
   visitVariableExpr(expr) {
-    return this.environment.get(expr.name);
+    return this.lookUpVariable(expr.name, expr);
   }
 
   visitAssignExpr(expr) {
     const value = this.evaluate(expr.value);
-    this.environment.assign(expr.name, value);
+
+    const distance = this.locals.get(expr);
+    if (distance !== undefined) {
+      this.environment.assignAt(distance, expr.name, value);
+    } else {
+      this.globals.assign(expr.name, value);
+    }
+
     return value;
+  }
+
+  resolve(expr, depth) {
+    this.locals.set(expr, depth);
+  }
+
+  lookUpVariable(name, expr) {
+    const distance = this.locals.get(expr);
+    if (distance !== undefined) {
+      return this.environment.getAt(distance, name.lexeme);
+    } else {
+      return this.globals.get(name);
+    }
   }
 
   visitGroupingExpr(expr) {
@@ -1349,6 +1386,190 @@ class Interpreter {
   }
 }
 
+class Resolver {
+  constructor(interpreter) {
+    this.interpreter = interpreter;
+    this.scopes = [];
+    this.currentFunction = "NONE";
+  }
+
+  resolve(statements) {
+    for (const statement of statements) {
+      this.resolveStmt(statement);
+    }
+  }
+
+  resolveStmt(stmt) {
+    stmt.accept(this);
+  }
+
+  resolveExpr(expr) {
+    expr.accept(this);
+  }
+
+  visitBlockStmt(stmt) {
+    this.beginScope();
+    this.resolve(stmt.statements);
+    this.endScope();
+    return null;
+  }
+
+  visitVarStmt(stmt) {
+    this.declare(stmt.name);
+    if (stmt.initializer !== null) {
+      this.resolveExpr(stmt.initializer);
+    }
+    this.define(stmt.name);
+    return null;
+  }
+
+  visitFunctionStmt(stmt) {
+    this.declare(stmt.name);
+    this.define(stmt.name);
+
+    this.resolveFunction(stmt, "FUNCTION");
+    return null;
+  }
+
+  visitExpressionStmt(stmt) {
+    this.resolveExpr(stmt.expression);
+    return null;
+  }
+
+  visitIfStmt(stmt) {
+    this.resolveExpr(stmt.condition);
+    this.resolveStmt(stmt.thenBranch);
+    if (stmt.elseBranch !== null) this.resolveStmt(stmt.elseBranch);
+    return null;
+  }
+
+  visitPrintStmt(stmt) {
+    this.resolveExpr(stmt.expression);
+    return null;
+  }
+
+  visitReturnStmt(stmt) {
+    if (this.currentFunction === "NONE") {
+      loxError(stmt.keyword, "Can't return from top-level code.");
+    }
+
+    if (stmt.value !== null) {
+      this.resolveExpr(stmt.value);
+    }
+
+    return null;
+  }
+
+  visitWhileStmt(stmt) {
+    this.resolveExpr(stmt.condition);
+    this.resolveStmt(stmt.body);
+    return null;
+  }
+
+  visitVariableExpr(expr) {
+    if (
+      this.scopes.length !== 0 &&
+      this.scopes[this.scopes.length - 1].get(expr.name.lexeme) === false
+    ) {
+      loxError(expr.name, "Can't read local variable in its own initializer.");
+    }
+
+    this.resolveLocal(expr, expr.name);
+    return null;
+  }
+
+  visitAssignExpr(expr) {
+    this.resolveExpr(expr.value);
+    this.resolveLocal(expr, expr.name);
+    return null;
+  }
+
+  visitBinaryExpr(expr) {
+    this.resolveExpr(expr.left);
+    this.resolveExpr(expr.right);
+    return null;
+  }
+
+  visitCallExpr(expr) {
+    this.resolveExpr(expr.callee);
+
+    for (const argument of expr.args) {
+      this.resolveExpr(argument);
+    }
+
+    return null;
+  }
+
+  visitGroupingExpr(expr) {
+    this.resolveExpr(expr.expression);
+    return null;
+  }
+
+  visitLiteralExpr(expr) {
+    return null;
+  }
+
+  visitLogicalExpr(expr) {
+    this.resolveExpr(expr.left);
+    this.resolveExpr(expr.right);
+    return null;
+  }
+
+  visitUnaryExpr(expr) {
+    this.resolveExpr(expr.right);
+    return null;
+  }
+
+  resolveFunction(fn, type) {
+    const enclosingFunction = this.currentFunction;
+    this.currentFunction = type;
+
+    this.beginScope();
+    for (const param of fn.params) {
+      this.declare(param);
+      this.define(param);
+    }
+    this.resolve(fn.body);
+    this.endScope();
+    this.currentFunction = enclosingFunction;
+  }
+
+  beginScope() {
+    this.scopes.push(new Map());
+  }
+
+  endScope() {
+    this.scopes.pop();
+  }
+
+  declare(name) {
+    if (this.scopes.length === 0) return;
+
+    const scope = this.scopes[this.scopes.length - 1];
+    if (scope.has(name.lexeme)) {
+      loxError(name, "Already a variable with this name in this scope.");
+    }
+
+    scope.set(name.lexeme, false);
+  }
+
+  define(name) {
+    if (this.scopes.length === 0) return;
+    this.scopes[this.scopes.length - 1].set(name.lexeme, true);
+  }
+
+  resolveLocal(expr, name) {
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      if (this.scopes[i].has(name.lexeme)) {
+        this.interpreter.resolve(expr, this.scopes.length - 1 - i);
+        return;
+      }
+    }
+
+    // Not found. Assume it is global.
+  }
+}
+
 if (command === "tokenize") {
   const fileContent = fs.readFileSync(filename, "utf8");
   const scanner = new Scanner(fileContent);
@@ -1417,6 +1638,13 @@ if (command === "tokenize") {
   }
 
   const interpreter = new Interpreter();
+  const resolver = new Resolver(interpreter);
+  resolver.resolve(statements);
+
+  if (hadError) {
+    process.exit(65);
+  }
+
   try {
     interpreter.interpret(statements);
   } catch (error) {
