@@ -491,6 +491,18 @@ class FunctionStmt extends Stmt {
   }
 }
 
+class ReturnStmt extends Stmt {
+  constructor(keyword, value) {
+    super();
+    this.keyword = keyword;
+    this.value = value;
+  }
+
+  accept(visitor) {
+    return visitor.visitReturnStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -619,6 +631,7 @@ class Parser {
     if (this.match(TokenType.IF)) return this.ifStatement();
     if (this.match(TokenType.WHILE)) return this.whileStatement();
     if (this.match(TokenType.FOR)) return this.forStatement();
+    if (this.match(TokenType.RETURN)) return this.returnStatement();
     if (this.match(TokenType.LEFT_BRACE)) return new BlockStmt(this.block());
     return this.expressionStatement();
   }
@@ -704,6 +717,17 @@ class Parser {
     const value = this.expression();
     this.consume(TokenType.SEMICOLON, "Expect ';' after value.");
     return new PrintStmt(value);
+  }
+
+  returnStatement() {
+    const keyword = this.previous();
+    let value = null;
+    if (!this.check(TokenType.SEMICOLON)) {
+      value = this.expression();
+    }
+
+    this.consume(TokenType.SEMICOLON, "Expect ';' after return value.");
+    return new ReturnStmt(keyword, value);
   }
 
   varDeclaration() {
@@ -1015,6 +1039,13 @@ class RuntimeError extends Error {
   }
 }
 
+class Return extends Error {
+  constructor(value) {
+    super();
+    this.value = value;
+  }
+}
+
 class LoxCallable {
   arity() {
     throw new Error("Not implemented");
@@ -1055,7 +1086,14 @@ class LoxFunction extends LoxCallable {
       environment.define(this.declaration.params[i].lexeme, args[i]);
     }
 
-    interpreter.executeBlock(this.declaration.body, environment);
+    try {
+      interpreter.executeBlock(this.declaration.body, environment);
+    } catch (returnValue) {
+      if (returnValue instanceof Return) {
+        return returnValue.value;
+      }
+      throw returnValue;
+    }
     return null;
   }
 
@@ -1111,6 +1149,13 @@ class Interpreter {
     const fn = new LoxFunction(stmt);
     this.environment.define(stmt.name.lexeme, fn);
     return null;
+  }
+
+  visitReturnStmt(stmt) {
+    let value = null;
+    if (stmt.value !== null) value = this.evaluate(stmt.value);
+
+    throw new Return(value);
   }
 
   visitBlockStmt(stmt) {
