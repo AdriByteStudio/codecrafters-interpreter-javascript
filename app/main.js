@@ -82,7 +82,11 @@ class Token {
   }
 
   toString() {
-    return `${this.type} ${this.lexeme} ${this.literal}`;
+    let literal = this.literal;
+    if (typeof literal === "number") {
+      literal = Number.isInteger(literal) ? literal.toFixed(1) : String(literal);
+    }
+    return `${this.type} ${this.lexeme} ${literal}`;
   }
 }
 
@@ -262,10 +266,7 @@ class Scanner {
     }
 
     const text = this.source.substring(this.start, this.current);
-    const value = parseFloat(text);
-    // Match Java's Double.toString: integers are printed with a ".0" suffix.
-    const literal = Number.isInteger(value) ? value.toFixed(1) : String(value);
-    this.addToken(TokenType.NUMBER, literal);
+    this.addToken(TokenType.NUMBER, parseFloat(text));
   }
 
   isDigit(c) {
@@ -524,6 +525,11 @@ class AstPrinter {
 
   visitLiteralExpr(expr) {
     if (expr.value === null) return "nil";
+    if (typeof expr.value === "number") {
+      return Number.isInteger(expr.value)
+        ? expr.value.toFixed(1)
+        : String(expr.value);
+    }
     return String(expr.value);
   }
 
@@ -546,6 +552,130 @@ class AstPrinter {
     }
     builder += ")";
     return builder;
+  }
+}
+
+class RuntimeError extends Error {
+  constructor(token, message) {
+    super(message);
+    this.token = token;
+  }
+}
+
+class Interpreter {
+  interpret(expression) {
+    const value = this.evaluate(expression);
+    return this.stringify(value);
+  }
+
+  evaluate(expr) {
+    return expr.accept(this);
+  }
+
+  visitLiteralExpr(expr) {
+    return expr.value;
+  }
+
+  visitGroupingExpr(expr) {
+    return this.evaluate(expr.expression);
+  }
+
+  visitUnaryExpr(expr) {
+    const right = this.evaluate(expr.right);
+
+    switch (expr.operator.type) {
+      case TokenType.BANG:
+        return !this.isTruthy(right);
+      case TokenType.MINUS:
+        this.checkNumberOperand(expr.operator, right);
+        return -right;
+    }
+
+    // Unreachable.
+    return null;
+  }
+
+  visitBinaryExpr(expr) {
+    const left = this.evaluate(expr.left);
+    const right = this.evaluate(expr.right);
+
+    switch (expr.operator.type) {
+      case TokenType.MINUS:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left - right;
+      case TokenType.SLASH:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left / right;
+      case TokenType.STAR:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left * right;
+      case TokenType.PLUS:
+        if (typeof left === "number" && typeof right === "number") {
+          return left + right;
+        }
+        if (typeof left === "string" && typeof right === "string") {
+          return left + right;
+        }
+        throw new RuntimeError(
+          expr.operator,
+          "Operands must be two numbers or two strings."
+        );
+      case TokenType.GREATER:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left > right;
+      case TokenType.GREATER_EQUAL:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left >= right;
+      case TokenType.LESS:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left < right;
+      case TokenType.LESS_EQUAL:
+        this.checkNumberOperands(expr.operator, left, right);
+        return left <= right;
+      case TokenType.BANG_EQUAL:
+        return !this.isEqual(left, right);
+      case TokenType.EQUAL_EQUAL:
+        return this.isEqual(left, right);
+    }
+
+    // Unreachable.
+    return null;
+  }
+
+  isTruthy(object) {
+    if (object === null) return false;
+    if (typeof object === "boolean") return object;
+    return true;
+  }
+
+  isEqual(a, b) {
+    if (a === null && b === null) return true;
+    if (a === null) return false;
+    return a === b;
+  }
+
+  checkNumberOperand(operator, operand) {
+    if (typeof operand === "number") return;
+    throw new RuntimeError(operator, "Operand must be a number.");
+  }
+
+  checkNumberOperands(operator, left, right) {
+    if (typeof left === "number" && typeof right === "number") return;
+    throw new RuntimeError(operator, "Operands must be numbers.");
+  }
+
+  stringify(object) {
+    if (object === null) return "nil";
+
+    if (typeof object === "number") {
+      let text = String(object);
+      if (text.endsWith(".0")) {
+        text = text.substring(0, text.length - 2);
+      }
+      return text;
+    }
+
+    return String(object);
   }
 }
 
@@ -574,6 +704,19 @@ if (command === "tokenize") {
 
   const printer = new AstPrinter();
   console.log(printer.print(expression));
+} else if (command === "evaluate") {
+  const fileContent = fs.readFileSync(filename, "utf8");
+  const scanner = new Scanner(fileContent);
+  const tokens = scanner.scanTokens();
+  const parser = new Parser(tokens);
+  const expression = parser.parse();
+
+  if (hadError) {
+    process.exit(65);
+  }
+
+  const interpreter = new Interpreter();
+  console.log(interpreter.interpret(expression));
 } else {
   console.error(`Usage: Unknown command: ${command}`);
   process.exit(1);
