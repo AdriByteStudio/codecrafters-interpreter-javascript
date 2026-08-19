@@ -53,6 +53,7 @@ class Scanner {
     this.start = 0;
     this.current = 0;
     this.line = 1;
+    this.hadError = false;
   }
 
   scanTokens() {
@@ -112,8 +113,13 @@ class Scanner {
         this.line++;
         break;
       default:
-        throw new Error(`Unexpected character: ${c}`);
+        this.reportError(`Unexpected character: ${c}`);
     }
+  }
+
+  reportError(message) {
+    console.error(`[line ${this.line}] Error: ${message}`);
+    this.hadError = true;
   }
 
   advance() {
@@ -132,4 +138,8 @@ const tokens = scanner.scanTokens();
 
 for (const token of tokens) {
   console.log(token.toString());
+}
+
+if (scanner.hadError) {
+  process.exit(65);
 }
