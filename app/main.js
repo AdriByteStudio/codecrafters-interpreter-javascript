@@ -540,9 +540,10 @@ class ReturnStmt extends Stmt {
 }
 
 class ClassStmt extends Stmt {
-  constructor(name, methods) {
+  constructor(name, superclass, methods) {
     super();
     this.name = name;
+    this.superclass = superclass;
     this.methods = methods;
   }
 
@@ -694,6 +695,12 @@ class Parser {
   classDeclaration() {
     const name = this.consume(TokenType.IDENTIFIER, "Expect class name.");
 
+    let superclass = null;
+    if (this.match(TokenType.LESS)) {
+      this.consume(TokenType.IDENTIFIER, "Expect superclass name.");
+      superclass = new Variable(this.previous());
+    }
+
     this.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
 
     const methods = [];
@@ -703,7 +710,7 @@ class Parser {
 
     this.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
 
-    return new ClassStmt(name, methods);
+    return new ClassStmt(name, superclass, methods);
   }
 
   statement() {
@@ -1221,9 +1228,10 @@ class LoxFunction extends LoxCallable {
 }
 
 class LoxClass extends LoxCallable {
-  constructor(name, methods) {
+  constructor(name, superclass, methods) {
     super();
     this.name = name;
+    this.superclass = superclass;
     this.methods = methods;
   }
 
@@ -1231,6 +1239,11 @@ class LoxClass extends LoxCallable {
     if (this.methods.has(name)) {
       return this.methods.get(name);
     }
+
+    if (this.superclass !== null) {
+      return this.superclass.findMethod(name);
+    }
+
     return null;
   }
 
@@ -1333,7 +1346,23 @@ class Interpreter {
   }
 
   visitClassStmt(stmt) {
+    let superclass = null;
+    if (stmt.superclass !== null) {
+      superclass = this.evaluate(stmt.superclass);
+      if (!(superclass instanceof LoxClass)) {
+        throw new RuntimeError(
+          stmt.superclass.name,
+          "Superclass must be a class."
+        );
+      }
+    }
+
     this.environment.define(stmt.name.lexeme, null);
+
+    if (stmt.superclass !== null) {
+      this.environment = new Environment(this.environment);
+      this.environment.define("super", superclass);
+    }
 
     const methods = new Map();
     for (const method of stmt.methods) {
@@ -1345,7 +1374,12 @@ class Interpreter {
       methods.set(method.name.lexeme, fn);
     }
 
-    const klass = new LoxClass(stmt.name.lexeme, methods);
+    const klass = new LoxClass(stmt.name.lexeme, superclass, methods);
+
+    if (superclass !== null) {
+      this.environment = this.environment.enclosing;
+    }
+
     this.environment.assign(stmt.name, klass);
     return null;
   }
@@ -1639,11 +1673,27 @@ class Resolver {
   }
 
   visitClassStmt(stmt) {
+    const enclosingClass = this.currentClass;
+    this.currentClass = "CLASS";
+
     this.declare(stmt.name);
     this.define(stmt.name);
 
-    const enclosingClass = this.currentClass;
-    this.currentClass = "CLASS";
+    if (
+      stmt.superclass !== null &&
+      stmt.name.lexeme === stmt.superclass.name.lexeme
+    ) {
+      loxError(stmt.superclass.name, "A class can't inherit from itself.");
+    }
+
+    if (stmt.superclass !== null) {
+      this.resolveExpr(stmt.superclass);
+    }
+
+    if (stmt.superclass !== null) {
+      this.beginScope();
+      this.scopes[this.scopes.length - 1].set("super", true);
+    }
 
     this.beginScope();
     this.scopes[this.scopes.length - 1].set("this", true);
@@ -1655,6 +1705,8 @@ class Resolver {
     }
 
     this.endScope();
+
+    if (stmt.superclass !== null) this.endScope();
 
     this.currentClass = enclosingClass;
     return null;
