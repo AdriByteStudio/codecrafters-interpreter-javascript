@@ -356,6 +356,31 @@ class Binary extends Expr {
   }
 }
 
+// Statement AST nodes
+class Stmt {}
+
+class ExpressionStmt extends Stmt {
+  constructor(expression) {
+    super();
+    this.expression = expression;
+  }
+
+  accept(visitor) {
+    return visitor.visitExpressionStmt(this);
+  }
+}
+
+class PrintStmt extends Stmt {
+  constructor(expression) {
+    super();
+    this.expression = expression;
+  }
+
+  accept(visitor) {
+    return visitor.visitPrintStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -387,12 +412,37 @@ class Parser {
   }
 
   parse() {
+    const statements = [];
+    while (!this.isAtEnd()) {
+      statements.push(this.statement());
+    }
+    return statements;
+  }
+
+  parseExpression() {
     try {
       return this.expression();
     } catch (error) {
       if (error instanceof ParseError) return null;
       throw error;
     }
+  }
+
+  statement() {
+    if (this.match(TokenType.PRINT)) return this.printStatement();
+    return this.expressionStatement();
+  }
+
+  printStatement() {
+    const value = this.expression();
+    this.consume(TokenType.SEMICOLON, "Expect ';' after value.");
+    return new PrintStmt(value);
+  }
+
+  expressionStatement() {
+    const expr = this.expression();
+    this.consume(TokenType.SEMICOLON, "Expect ';' after expression.");
+    return new ExpressionStmt(expr);
   }
 
   expression() {
@@ -570,9 +620,30 @@ class RuntimeError extends Error {
 }
 
 class Interpreter {
-  interpret(expression) {
+  interpret(statements) {
+    for (const statement of statements) {
+      this.execute(statement);
+    }
+  }
+
+  interpretExpression(expression) {
     const value = this.evaluate(expression);
     return this.stringify(value);
+  }
+
+  execute(stmt) {
+    stmt.accept(this);
+  }
+
+  visitExpressionStmt(stmt) {
+    this.evaluate(stmt.expression);
+    return null;
+  }
+
+  visitPrintStmt(stmt) {
+    const value = this.evaluate(stmt.expression);
+    console.log(this.stringify(value));
+    return null;
   }
 
   evaluate(expr) {
@@ -703,7 +774,7 @@ if (command === "tokenize") {
   const scanner = new Scanner(fileContent);
   const tokens = scanner.scanTokens();
   const parser = new Parser(tokens);
-  const expression = parser.parse();
+  const expression = parser.parseExpression();
 
   if (hadError) {
     process.exit(65);
@@ -716,7 +787,7 @@ if (command === "tokenize") {
   const scanner = new Scanner(fileContent);
   const tokens = scanner.scanTokens();
   const parser = new Parser(tokens);
-  const expression = parser.parse();
+  const expression = parser.parseExpression();
 
   if (hadError) {
     process.exit(65);
@@ -724,7 +795,38 @@ if (command === "tokenize") {
 
   const interpreter = new Interpreter();
   try {
-    console.log(interpreter.interpret(expression));
+    console.log(interpreter.interpretExpression(expression));
+  } catch (error) {
+    if (error instanceof RuntimeError) {
+      runtimeError(error);
+    } else {
+      throw error;
+    }
+  }
+
+  if (hadRuntimeError) {
+    process.exit(70);
+  }
+} else if (command === "run") {
+  const fileContent = fs.readFileSync(filename, "utf8");
+  const scanner = new Scanner(fileContent);
+  const tokens = scanner.scanTokens();
+  const parser = new Parser(tokens);
+
+  let statements = [];
+  try {
+    statements = parser.parse();
+  } catch (error) {
+    if (!(error instanceof ParseError)) throw error;
+  }
+
+  if (hadError) {
+    process.exit(65);
+  }
+
+  const interpreter = new Interpreter();
+  try {
+    interpreter.interpret(statements);
   } catch (error) {
     if (error instanceof RuntimeError) {
       runtimeError(error);
