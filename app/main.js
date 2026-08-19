@@ -1179,10 +1179,11 @@ class Clock extends LoxCallable {
 }
 
 class LoxFunction extends LoxCallable {
-  constructor(declaration, closure) {
+  constructor(declaration, closure, isInitializer) {
     super();
     this.declaration = declaration;
     this.closure = closure;
+    this.isInitializer = isInitializer;
   }
 
   arity() {
@@ -1199,17 +1200,19 @@ class LoxFunction extends LoxCallable {
       interpreter.executeBlock(this.declaration.body, environment);
     } catch (returnValue) {
       if (returnValue instanceof Return) {
-        return returnValue.value;
+        return this.isInitializer
+          ? this.closure.getAt(0, "this")
+          : returnValue.value;
       }
       throw returnValue;
     }
-    return null;
+    return this.isInitializer ? this.closure.getAt(0, "this") : null;
   }
 
   bind(instance) {
     const environment = new Environment(this.closure);
     environment.define("this", instance);
-    return new LoxFunction(this.declaration, environment);
+    return new LoxFunction(this.declaration, environment, this.isInitializer);
   }
 
   toString() {
@@ -1232,11 +1235,18 @@ class LoxClass extends LoxCallable {
   }
 
   arity() {
+    const initializer = this.findMethod("init");
+    if (initializer !== null) return initializer.arity();
     return 0;
   }
 
   call(interpreter, args) {
-    return new LoxInstance(this);
+    const instance = new LoxInstance(this);
+    const initializer = this.findMethod("init");
+    if (initializer !== null) {
+      initializer.bind(instance).call(interpreter, args);
+    }
+    return instance;
   }
 
   toString() {
@@ -1327,7 +1337,11 @@ class Interpreter {
 
     const methods = new Map();
     for (const method of stmt.methods) {
-      const fn = new LoxFunction(method, this.environment);
+      const fn = new LoxFunction(
+        method,
+        this.environment,
+        method.name.lexeme === "init"
+      );
       methods.set(method.name.lexeme, fn);
     }
 
