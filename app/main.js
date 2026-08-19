@@ -1071,9 +1071,10 @@ class Clock extends LoxCallable {
 }
 
 class LoxFunction extends LoxCallable {
-  constructor(declaration) {
+  constructor(declaration, closure) {
     super();
     this.declaration = declaration;
+    this.closure = closure;
   }
 
   arity() {
@@ -1081,7 +1082,7 @@ class LoxFunction extends LoxCallable {
   }
 
   call(interpreter, args) {
-    const environment = new Environment(interpreter.globals);
+    const environment = new Environment(this.closure);
     for (let i = 0; i < this.declaration.params.length; i++) {
       environment.define(this.declaration.params[i].lexeme, args[i]);
     }
@@ -1146,7 +1147,7 @@ class Interpreter {
   }
 
   visitFunctionStmt(stmt) {
-    const fn = new LoxFunction(stmt);
+    const fn = new LoxFunction(stmt, this.environment);
     this.environment.define(stmt.name.lexeme, fn);
     return null;
   }
