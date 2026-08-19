@@ -405,6 +405,17 @@ class Call extends Expr {
   }
 }
 
+class This extends Expr {
+  constructor(keyword) {
+    super();
+    this.keyword = keyword;
+  }
+
+  accept(visitor) {
+    return visitor.visitThisExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -500,6 +511,18 @@ class ReturnStmt extends Stmt {
 
   accept(visitor) {
     return visitor.visitReturnStmt(this);
+  }
+}
+
+class ClassStmt extends Stmt {
+  constructor(name, methods) {
+    super();
+    this.name = name;
+    this.methods = methods;
+  }
+
+  accept(visitor) {
+    return visitor.visitClassStmt(this);
   }
 }
 
@@ -608,6 +631,7 @@ class Parser {
 
   declaration() {
     try {
+      if (this.match(TokenType.CLASS)) return this.classDeclaration();
       if (this.match(TokenType.FUN)) return this.function("function");
       if (this.match(TokenType.VAR)) return this.varDeclaration();
       return this.statement();
@@ -640,6 +664,21 @@ class Parser {
     this.consume(TokenType.LEFT_BRACE, `Expect '{' before ${kind} body.`);
     const body = this.block();
     return new FunctionStmt(name, parameters, body);
+  }
+
+  classDeclaration() {
+    const name = this.consume(TokenType.IDENTIFIER, "Expect class name.");
+
+    this.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
+
+    const methods = [];
+    while (!this.check(TokenType.RIGHT_BRACE) && !this.isAtEnd()) {
+      methods.push(this.function("method"));
+    }
+
+    this.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
+
+    return new ClassStmt(name, methods);
   }
 
   statement() {
@@ -943,6 +982,8 @@ class Parser {
       return new Variable(this.previous());
     }
 
+    if (this.match(TokenType.THIS)) return new This(this.previous());
+
     if (this.match(TokenType.LEFT_PAREN)) {
       const expr = this.expression();
       this.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
@@ -1038,6 +1079,10 @@ class AstPrinter {
     return this.parenthesize("call", expr.callee, ...expr.args);
   }
 
+  visitThisExpr(expr) {
+    return "this";
+  }
+
   parenthesize(name, ...exprs) {
     let builder = `(${name}`;
     for (const expr of exprs) {
@@ -1114,8 +1159,69 @@ class LoxFunction extends LoxCallable {
     return null;
   }
 
+  bind(instance) {
+    const environment = new Environment(this.closure);
+    environment.define("this", instance);
+    return new LoxFunction(this.declaration, environment);
+  }
+
   toString() {
     return `<fn ${this.declaration.name.lexeme}>`;
+  }
+}
+
+class LoxClass extends LoxCallable {
+  constructor(name, methods) {
+    super();
+    this.name = name;
+    this.methods = methods;
+  }
+
+  findMethod(name) {
+    if (this.methods.has(name)) {
+      return this.methods.get(name);
+    }
+    return null;
+  }
+
+  arity() {
+    return 0;
+  }
+
+  call(interpreter, args) {
+    return new LoxInstance(this);
+  }
+
+  toString() {
+    return this.name;
+  }
+}
+
+class LoxInstance {
+  constructor(klass) {
+    this.klass = klass;
+    this.fields = new Map();
+  }
+
+  get(name) {
+    if (this.fields.has(name.lexeme)) {
+      return this.fields.get(name.lexeme);
+    }
+
+    const method = this.klass.findMethod(name.lexeme);
+    if (method !== null) {
+      return method.bind(this);
+    }
+
+    throw new RuntimeError(name, `Undefined property '${name.lexeme}'.`);
+  }
+
+  set(name, value) {
+    this.fields.set(name.lexeme, value);
+  }
+
+  toString() {
+    return `${this.klass.name} instance`;
   }
 }
 
@@ -1166,6 +1272,20 @@ class Interpreter {
   visitFunctionStmt(stmt) {
     const fn = new LoxFunction(stmt, this.environment);
     this.environment.define(stmt.name.lexeme, fn);
+    return null;
+  }
+
+  visitClassStmt(stmt) {
+    this.environment.define(stmt.name.lexeme, null);
+
+    const methods = new Map();
+    for (const method of stmt.methods) {
+      const fn = new LoxFunction(method, this.environment);
+      methods.set(method.name.lexeme, fn);
+    }
+
+    const klass = new LoxClass(stmt.name.lexeme, methods);
+    this.environment.assign(stmt.name, klass);
     return null;
   }
 
@@ -1220,6 +1340,10 @@ class Interpreter {
 
   visitVariableExpr(expr) {
     return this.lookUpVariable(expr.name, expr);
+  }
+
+  visitThisExpr(expr) {
+    return this.lookUpVariable(expr.keyword, expr);
   }
 
   visitAssignExpr(expr) {
@@ -1391,6 +1515,7 @@ class Resolver {
     this.interpreter = interpreter;
     this.scopes = [];
     this.currentFunction = "NONE";
+    this.currentClass = "NONE";
   }
 
   resolve(statements) {
@@ -1428,6 +1553,21 @@ class Resolver {
     this.define(stmt.name);
 
     this.resolveFunction(stmt, "FUNCTION");
+    return null;
+  }
+
+  visitClassStmt(stmt) {
+    this.declare(stmt.name);
+    this.define(stmt.name);
+
+    const enclosingClass = this.currentClass;
+    this.currentClass = "CLASS";
+
+    for (const method of stmt.methods) {
+      this.resolveFunction(method, "METHOD");
+    }
+
+    this.currentClass = enclosingClass;
     return null;
   }
 
@@ -1475,6 +1615,16 @@ class Resolver {
     }
 
     this.resolveLocal(expr, expr.name);
+    return null;
+  }
+
+  visitThisExpr(expr) {
+    if (this.currentClass === "NONE") {
+      loxError(expr.keyword, "Can't use 'this' outside of a class.");
+      return null;
+    }
+
+    this.resolveLocal(expr, expr.keyword);
     return null;
   }
 
