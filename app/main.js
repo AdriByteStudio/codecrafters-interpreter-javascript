@@ -427,6 +427,19 @@ class BlockStmt extends Stmt {
   }
 }
 
+class IfStmt extends Stmt {
+  constructor(condition, thenBranch, elseBranch) {
+    super();
+    this.condition = condition;
+    this.thenBranch = thenBranch;
+    this.elseBranch = elseBranch;
+  }
+
+  accept(visitor) {
+    return visitor.visitIfStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -529,8 +542,23 @@ class Parser {
 
   statement() {
     if (this.match(TokenType.PRINT)) return this.printStatement();
+    if (this.match(TokenType.IF)) return this.ifStatement();
     if (this.match(TokenType.LEFT_BRACE)) return new BlockStmt(this.block());
     return this.expressionStatement();
+  }
+
+  ifStatement() {
+    this.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.");
+    const condition = this.expression();
+    this.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition.");
+
+    const thenBranch = this.statement();
+    let elseBranch = null;
+    if (this.match(TokenType.ELSE)) {
+      elseBranch = this.statement();
+    }
+
+    return new IfStmt(condition, thenBranch, elseBranch);
   }
 
   block() {
@@ -840,6 +868,15 @@ class Interpreter {
 
   visitBlockStmt(stmt) {
     this.executeBlock(stmt.statements, new Environment(this.environment));
+    return null;
+  }
+
+  visitIfStmt(stmt) {
+    if (this.isTruthy(this.evaluate(stmt.condition))) {
+      this.execute(stmt.thenBranch);
+    } else if (stmt.elseBranch !== null) {
+      this.execute(stmt.elseBranch);
+    }
     return null;
   }
 
