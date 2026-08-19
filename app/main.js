@@ -478,6 +478,19 @@ class WhileStmt extends Stmt {
   }
 }
 
+class FunctionStmt extends Stmt {
+  constructor(name, params, body) {
+    super();
+    this.name = name;
+    this.params = params;
+    this.body = body;
+  }
+
+  accept(visitor) {
+    return visitor.visitFunctionStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -567,6 +580,7 @@ class Parser {
 
   declaration() {
     try {
+      if (this.match(TokenType.FUN)) return this.function("function");
       if (this.match(TokenType.VAR)) return this.varDeclaration();
       return this.statement();
     } catch (error) {
@@ -576,6 +590,28 @@ class Parser {
       }
       throw error;
     }
+  }
+
+  function(kind) {
+    const name = this.consume(TokenType.IDENTIFIER, `Expect ${kind} name.`);
+    this.consume(TokenType.LEFT_PAREN, `Expect '(' after ${kind} name.`);
+    const parameters = [];
+    if (!this.check(TokenType.RIGHT_PAREN)) {
+      do {
+        if (parameters.length >= 255) {
+          this.error(this.peek(), "Can't have more than 255 parameters.");
+        }
+
+        parameters.push(
+          this.consume(TokenType.IDENTIFIER, "Expect parameter name.")
+        );
+      } while (this.match(TokenType.COMMA));
+    }
+    this.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.");
+
+    this.consume(TokenType.LEFT_BRACE, `Expect '{' before ${kind} body.`);
+    const body = this.block();
+    return new FunctionStmt(name, parameters, body);
   }
 
   statement() {
@@ -1003,10 +1039,36 @@ class Clock extends LoxCallable {
   }
 }
 
+class LoxFunction extends LoxCallable {
+  constructor(declaration) {
+    super();
+    this.declaration = declaration;
+  }
+
+  arity() {
+    return this.declaration.params.length;
+  }
+
+  call(interpreter, args) {
+    const environment = new Environment(interpreter.globals);
+    for (let i = 0; i < this.declaration.params.length; i++) {
+      environment.define(this.declaration.params[i].lexeme, args[i]);
+    }
+
+    interpreter.executeBlock(this.declaration.body, environment);
+    return null;
+  }
+
+  toString() {
+    return `<fn ${this.declaration.name.lexeme}>`;
+  }
+}
+
 class Interpreter {
   constructor() {
-    this.environment = new Environment();
-    this.environment.define("clock", new Clock());
+    this.globals = new Environment();
+    this.globals.define("clock", new Clock());
+    this.environment = this.globals;
   }
 
   interpret(statements) {
@@ -1042,6 +1104,12 @@ class Interpreter {
     }
 
     this.environment.define(stmt.name.lexeme, value);
+    return null;
+  }
+
+  visitFunctionStmt(stmt) {
+    const fn = new LoxFunction(stmt);
+    this.environment.define(stmt.name.lexeme, fn);
     return null;
   }
 
