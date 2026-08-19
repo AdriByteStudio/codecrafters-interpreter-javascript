@@ -41,7 +41,44 @@ const TokenType = {
   GREATER_EQUAL: "GREATER_EQUAL",
   STRING: "STRING",
   NUMBER: "NUMBER",
+  IDENTIFIER: "IDENTIFIER",
+  AND: "AND",
+  CLASS: "CLASS",
+  ELSE: "ELSE",
+  FALSE: "FALSE",
+  FOR: "FOR",
+  FUN: "FUN",
+  IF: "IF",
+  NIL: "NIL",
+  OR: "OR",
+  PRINT: "PRINT",
+  RETURN: "RETURN",
+  SUPER: "SUPER",
+  THIS: "THIS",
+  TRUE: "TRUE",
+  VAR: "VAR",
+  WHILE: "WHILE",
   EOF: "EOF",
+};
+
+// Reserved words
+const keywords = {
+  and: TokenType.AND,
+  class: TokenType.CLASS,
+  else: TokenType.ELSE,
+  false: TokenType.FALSE,
+  for: TokenType.FOR,
+  fun: TokenType.FUN,
+  if: TokenType.IF,
+  nil: TokenType.NIL,
+  or: TokenType.OR,
+  print: TokenType.PRINT,
+  return: TokenType.RETURN,
+  super: TokenType.SUPER,
+  this: TokenType.THIS,
+  true: TokenType.TRUE,
+  var: TokenType.VAR,
+  while: TokenType.WHILE,
 };
 
 class Token {
@@ -167,6 +204,8 @@ class Scanner {
       default:
         if (this.isDigit(c)) {
           this.number();
+        } else if (this.isAlpha(c)) {
+          this.identifier();
         } else {
           this.reportError(`Unexpected character: ${c}`);
         }
@@ -239,6 +278,28 @@ class Scanner {
 
   isDigit(c) {
     return c >= "0" && c <= "9";
+  }
+
+  identifier() {
+    while (this.isAlphaNumeric(this.peek())) {
+      this.advance();
+    }
+
+    const text = this.source.substring(this.start, this.current);
+    const type = keywords[text] ?? TokenType.IDENTIFIER;
+    this.addToken(type);
+  }
+
+  isAlpha(c) {
+    return (
+      (c >= "a" && c <= "z") ||
+      (c >= "A" && c <= "Z") ||
+      c === "_"
+    );
+  }
+
+  isAlphaNumeric(c) {
+    return this.isAlpha(c) || this.isDigit(c);
   }
 
   peekNext() {
