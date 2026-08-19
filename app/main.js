@@ -416,6 +416,18 @@ class This extends Expr {
   }
 }
 
+class Super extends Expr {
+  constructor(keyword, method) {
+    super();
+    this.keyword = keyword;
+    this.method = method;
+  }
+
+  accept(visitor) {
+    return visitor.visitSuperExpr(this);
+  }
+}
+
 class Get extends Expr {
   constructor(object, name) {
     super();
@@ -1025,6 +1037,16 @@ class Parser {
 
     if (this.match(TokenType.THIS)) return new This(this.previous());
 
+    if (this.match(TokenType.SUPER)) {
+      const keyword = this.previous();
+      this.consume(TokenType.DOT, "Expect '.' after 'super'.");
+      const method = this.consume(
+        TokenType.IDENTIFIER,
+        "Expect superclass method name."
+      );
+      return new Super(keyword, method);
+    }
+
     if (this.match(TokenType.LEFT_PAREN)) {
       const expr = this.expression();
       this.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
@@ -1122,6 +1144,10 @@ class AstPrinter {
 
   visitThisExpr(expr) {
     return "this";
+  }
+
+  visitSuperExpr(expr) {
+    return this.parenthesize("super", new Literal(expr.method.lexeme));
   }
 
   visitGetExpr(expr) {
@@ -1441,6 +1467,23 @@ class Interpreter {
     return this.lookUpVariable(expr.keyword, expr);
   }
 
+  visitSuperExpr(expr) {
+    const distance = this.locals.get(expr);
+    const superclass = this.environment.getAt(distance, "super");
+
+    const object = this.environment.getAt(distance - 1, "this");
+
+    const method = superclass.findMethod(expr.method.lexeme);
+    if (method === null) {
+      throw new RuntimeError(
+        expr.method,
+        `Undefined property '${expr.method.lexeme}'.`
+      );
+    }
+
+    return method.bind(object);
+  }
+
   visitGetExpr(expr) {
     const object = this.evaluate(expr.object);
     if (object instanceof LoxInstance) {
@@ -1674,7 +1717,7 @@ class Resolver {
 
   visitClassStmt(stmt) {
     const enclosingClass = this.currentClass;
-    this.currentClass = "CLASS";
+    this.currentClass = stmt.superclass !== null ? "SUBCLASS" : "CLASS";
 
     this.declare(stmt.name);
     this.define(stmt.name);
@@ -1767,6 +1810,20 @@ class Resolver {
     if (this.currentClass === "NONE") {
       loxError(expr.keyword, "Can't use 'this' outside of a class.");
       return null;
+    }
+
+    this.resolveLocal(expr, expr.keyword);
+    return null;
+  }
+
+  visitSuperExpr(expr) {
+    if (this.currentClass === "NONE") {
+      loxError(expr.keyword, "Can't use 'super' outside of a class.");
+    } else if (this.currentClass !== "SUBCLASS") {
+      loxError(
+        expr.keyword,
+        "Can't use 'super' in a class with no superclass."
+      );
     }
 
     this.resolveLocal(expr, expr.keyword);
