@@ -40,6 +40,7 @@ const TokenType = {
   GREATER: "GREATER",
   GREATER_EQUAL: "GREATER_EQUAL",
   STRING: "STRING",
+  NUMBER: "NUMBER",
   EOF: "EOF",
 };
 
@@ -164,7 +165,11 @@ class Scanner {
         this.line++;
         break;
       default:
-        this.reportError(`Unexpected character: ${c}`);
+        if (this.isDigit(c)) {
+          this.number();
+        } else {
+          this.reportError(`Unexpected character: ${c}`);
+        }
     }
   }
 
@@ -208,6 +213,37 @@ class Scanner {
     // Trim the surrounding quotes.
     const value = this.source.substring(this.start + 1, this.current - 1);
     this.addToken(TokenType.STRING, value);
+  }
+
+  number() {
+    while (this.isDigit(this.peek())) {
+      this.advance();
+    }
+
+    // Look for a fractional part.
+    if (this.peek() === "." && this.isDigit(this.peekNext())) {
+      // Consume the ".".
+      this.advance();
+
+      while (this.isDigit(this.peek())) {
+        this.advance();
+      }
+    }
+
+    const text = this.source.substring(this.start, this.current);
+    const value = parseFloat(text);
+    // Match Java's Double.toString: integers are printed with a ".0" suffix.
+    const literal = Number.isInteger(value) ? value.toFixed(1) : String(value);
+    this.addToken(TokenType.NUMBER, literal);
+  }
+
+  isDigit(c) {
+    return c >= "0" && c <= "9";
+  }
+
+  peekNext() {
+    if (this.current + 1 >= this.source.length) return "\0";
+    return this.source.charAt(this.current + 1);
   }
 
   addToken(type, literal = null) {
