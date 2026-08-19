@@ -356,6 +356,17 @@ class Binary extends Expr {
   }
 }
 
+class Variable extends Expr {
+  constructor(name) {
+    super();
+    this.name = name;
+  }
+
+  accept(visitor) {
+    return visitor.visitVariableExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -378,6 +389,18 @@ class PrintStmt extends Stmt {
 
   accept(visitor) {
     return visitor.visitPrintStmt(this);
+  }
+}
+
+class VarStmt extends Stmt {
+  constructor(name, initializer) {
+    super();
+    this.name = name;
+    this.initializer = initializer;
+  }
+
+  accept(visitor) {
+    return visitor.visitVarStmt(this);
   }
 }
 
@@ -405,6 +428,24 @@ function runtimeError(error) {
 
 class ParseError extends Error {}
 
+class Environment {
+  constructor() {
+    this.values = new Map();
+  }
+
+  define(name, value) {
+    this.values.set(name, value);
+  }
+
+  get(name) {
+    if (this.values.has(name.lexeme)) {
+      return this.values.get(name.lexeme);
+    }
+
+    throw new RuntimeError(name, `Undefined variable '${name.lexeme}'.`);
+  }
+}
+
 class Parser {
   constructor(tokens) {
     this.tokens = tokens;
@@ -414,7 +455,10 @@ class Parser {
   parse() {
     const statements = [];
     while (!this.isAtEnd()) {
-      statements.push(this.statement());
+      const stmt = this.declaration();
+      if (stmt !== null) {
+        statements.push(stmt);
+      }
     }
     return statements;
   }
@@ -424,6 +468,19 @@ class Parser {
       return this.expression();
     } catch (error) {
       if (error instanceof ParseError) return null;
+      throw error;
+    }
+  }
+
+  declaration() {
+    try {
+      if (this.match(TokenType.VAR)) return this.varDeclaration();
+      return this.statement();
+    } catch (error) {
+      if (error instanceof ParseError) {
+        this.synchronize();
+        return null;
+      }
       throw error;
     }
   }
@@ -439,10 +496,44 @@ class Parser {
     return new PrintStmt(value);
   }
 
+  varDeclaration() {
+    const name = this.consume(TokenType.IDENTIFIER, "Expect variable name.");
+
+    let initializer = null;
+    if (this.match(TokenType.EQUAL)) {
+      initializer = this.expression();
+    }
+
+    this.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.");
+    return new VarStmt(name, initializer);
+  }
+
   expressionStatement() {
     const expr = this.expression();
     this.consume(TokenType.SEMICOLON, "Expect ';' after expression.");
     return new ExpressionStmt(expr);
+  }
+
+  synchronize() {
+    this.advance();
+
+    while (!this.isAtEnd()) {
+      if (this.previous().type === TokenType.SEMICOLON) return;
+
+      switch (this.peek().type) {
+        case TokenType.CLASS:
+        case TokenType.FUN:
+        case TokenType.VAR:
+        case TokenType.FOR:
+        case TokenType.IF:
+        case TokenType.WHILE:
+        case TokenType.PRINT:
+        case TokenType.RETURN:
+          return;
+      }
+
+      this.advance();
+    }
   }
 
   expression() {
@@ -521,6 +612,10 @@ class Parser {
 
     if (this.match(TokenType.NUMBER, TokenType.STRING)) {
       return new Literal(this.previous().literal);
+    }
+
+    if (this.match(TokenType.IDENTIFIER)) {
+      return new Variable(this.previous());
     }
 
     if (this.match(TokenType.LEFT_PAREN)) {
@@ -602,6 +697,10 @@ class AstPrinter {
     return this.parenthesize(expr.operator.lexeme, expr.left, expr.right);
   }
 
+  visitVariableExpr(expr) {
+    return expr.name.lexeme;
+  }
+
   parenthesize(name, ...exprs) {
     let builder = `(${name}`;
     for (const expr of exprs) {
@@ -620,6 +719,10 @@ class RuntimeError extends Error {
 }
 
 class Interpreter {
+  constructor() {
+    this.environment = new Environment();
+  }
+
   interpret(statements) {
     for (const statement of statements) {
       this.execute(statement);
@@ -646,12 +749,26 @@ class Interpreter {
     return null;
   }
 
+  visitVarStmt(stmt) {
+    let value = null;
+    if (stmt.initializer !== null) {
+      value = this.evaluate(stmt.initializer);
+    }
+
+    this.environment.define(stmt.name.lexeme, value);
+    return null;
+  }
+
   evaluate(expr) {
     return expr.accept(this);
   }
 
   visitLiteralExpr(expr) {
     return expr.value;
+  }
+
+  visitVariableExpr(expr) {
+    return this.environment.get(expr.name);
   }
 
   visitGroupingExpr(expr) {
