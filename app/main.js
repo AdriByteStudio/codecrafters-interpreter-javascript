@@ -20,11 +20,11 @@ console.error("Logs from your program will appear here!");
 const filename = args[1];
 
 // TODO: Uncomment the code below to pass the first stage
-//
-// const fileContent = fs.readFileSync(filename, "utf8");
-//
-// if (fileContent.length !== 0) {
-//   throw new Error("Scanner not implemented");
-// } else {
-//   console.log("EOF  null");
-// }
+
+ const fileContent = fs.readFileSync(filename, "utf8");
+
+ if (fileContent.length !== 0) {
+   throw new Error("Scanner not implemented");
+ } else {
+   console.log("EOF  null");
+ }
