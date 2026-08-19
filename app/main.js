@@ -416,6 +416,17 @@ class VarStmt extends Stmt {
   }
 }
 
+class BlockStmt extends Stmt {
+  constructor(statements) {
+    super();
+    this.statements = statements;
+  }
+
+  accept(visitor) {
+    return visitor.visitBlockStmt(this);
+  }
+}
+
 let hadError = false;
 let hadRuntimeError = false;
 
@@ -441,8 +452,9 @@ function runtimeError(error) {
 class ParseError extends Error {}
 
 class Environment {
-  constructor() {
+  constructor(enclosing = null) {
     this.values = new Map();
+    this.enclosing = enclosing;
   }
 
   define(name, value) {
@@ -454,12 +466,21 @@ class Environment {
       return this.values.get(name.lexeme);
     }
 
+    if (this.enclosing !== null) {
+      return this.enclosing.get(name);
+    }
+
     throw new RuntimeError(name, `Undefined variable '${name.lexeme}'.`);
   }
 
   assign(name, value) {
     if (this.values.has(name.lexeme)) {
       this.values.set(name.lexeme, value);
+      return;
+    }
+
+    if (this.enclosing !== null) {
+      this.enclosing.assign(name, value);
       return;
     }
 
@@ -508,7 +529,22 @@ class Parser {
 
   statement() {
     if (this.match(TokenType.PRINT)) return this.printStatement();
+    if (this.match(TokenType.LEFT_BRACE)) return new BlockStmt(this.block());
     return this.expressionStatement();
+  }
+
+  block() {
+    const statements = [];
+
+    while (!this.check(TokenType.RIGHT_BRACE) && !this.isAtEnd()) {
+      const stmt = this.declaration();
+      if (stmt !== null) {
+        statements.push(stmt);
+      }
+    }
+
+    this.consume(TokenType.RIGHT_BRACE, "Expect '}' after block.");
+    return statements;
   }
 
   printStatement() {
@@ -800,6 +836,24 @@ class Interpreter {
 
     this.environment.define(stmt.name.lexeme, value);
     return null;
+  }
+
+  visitBlockStmt(stmt) {
+    this.executeBlock(stmt.statements, new Environment(this.environment));
+    return null;
+  }
+
+  executeBlock(statements, environment) {
+    const previous = this.environment;
+    try {
+      this.environment = environment;
+
+      for (const statement of statements) {
+        this.execute(statement);
+      }
+    } finally {
+      this.environment = previous;
+    }
   }
 
   evaluate(expr) {
