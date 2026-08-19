@@ -8,15 +8,7 @@ if (args.length < 2) {
 }
 
 const command = args[0];
-
-if (command !== "tokenize") {
-  console.error(`Usage: Unknown command: ${command}`);
-  process.exit(1);
-}
-
 const filename = args[1];
-
-const fileContent = fs.readFileSync(filename, "utf8");
 
 // Token type identifiers
 const TokenType = {
@@ -313,13 +305,248 @@ class Scanner {
   }
 }
 
-const scanner = new Scanner(fileContent);
-const tokens = scanner.scanTokens();
+// Expression AST nodes
+class Expr {}
 
-for (const token of tokens) {
-  console.log(token.toString());
+class Literal extends Expr {
+  constructor(value) {
+    super();
+    this.value = value;
+  }
+
+  accept(visitor) {
+    return visitor.visitLiteralExpr(this);
+  }
 }
 
-if (scanner.hadError) {
-  process.exit(65);
+class Grouping extends Expr {
+  constructor(expression) {
+    super();
+    this.expression = expression;
+  }
+
+  accept(visitor) {
+    return visitor.visitGroupingExpr(this);
+  }
+}
+
+class Unary extends Expr {
+  constructor(operator, right) {
+    super();
+    this.operator = operator;
+    this.right = right;
+  }
+
+  accept(visitor) {
+    return visitor.visitUnaryExpr(this);
+  }
+}
+
+class Binary extends Expr {
+  constructor(left, operator, right) {
+    super();
+    this.left = left;
+    this.operator = operator;
+    this.right = right;
+  }
+
+  accept(visitor) {
+    return visitor.visitBinaryExpr(this);
+  }
+}
+
+class Parser {
+  constructor(tokens) {
+    this.tokens = tokens;
+    this.current = 0;
+  }
+
+  parse() {
+    try {
+      return this.expression();
+    } catch (error) {
+      return null;
+    }
+  }
+
+  expression() {
+    return this.equality();
+  }
+
+  equality() {
+    let expr = this.comparison();
+
+    while (this.match(TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL)) {
+      const operator = this.previous();
+      const right = this.comparison();
+      expr = new Binary(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  comparison() {
+    let expr = this.term();
+
+    while (
+      this.match(
+        TokenType.GREATER,
+        TokenType.GREATER_EQUAL,
+        TokenType.LESS,
+        TokenType.LESS_EQUAL
+      )
+    ) {
+      const operator = this.previous();
+      const right = this.term();
+      expr = new Binary(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  term() {
+    let expr = this.factor();
+
+    while (this.match(TokenType.MINUS, TokenType.PLUS)) {
+      const operator = this.previous();
+      const right = this.factor();
+      expr = new Binary(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  factor() {
+    let expr = this.unary();
+
+    while (this.match(TokenType.SLASH, TokenType.STAR)) {
+      const operator = this.previous();
+      const right = this.unary();
+      expr = new Binary(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  unary() {
+    if (this.match(TokenType.BANG, TokenType.MINUS)) {
+      const operator = this.previous();
+      const right = this.unary();
+      return new Unary(operator, right);
+    }
+
+    return this.primary();
+  }
+
+  primary() {
+    if (this.match(TokenType.FALSE)) return new Literal(false);
+    if (this.match(TokenType.TRUE)) return new Literal(true);
+    if (this.match(TokenType.NIL)) return new Literal(null);
+
+    if (this.match(TokenType.NUMBER, TokenType.STRING)) {
+      return new Literal(this.previous().literal);
+    }
+
+    if (this.match(TokenType.LEFT_PAREN)) {
+      const expr = this.expression();
+      this.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
+      return new Grouping(expr);
+    }
+
+    throw new Error("Expect expression.");
+  }
+
+  match(...types) {
+    for (const type of types) {
+      if (this.check(type)) {
+        this.advance();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  consume(type, message) {
+    if (this.check(type)) return this.advance();
+    throw new Error(message);
+  }
+
+  check(type) {
+    if (this.isAtEnd()) return false;
+    return this.peek().type === type;
+  }
+
+  advance() {
+    if (!this.isAtEnd()) this.current++;
+    return this.previous();
+  }
+
+  isAtEnd() {
+    return this.peek().type === TokenType.EOF;
+  }
+
+  peek() {
+    return this.tokens[this.current];
+  }
+
+  previous() {
+    return this.tokens[this.current - 1];
+  }
+}
+
+class AstPrinter {
+  print(expr) {
+    return expr.accept(this);
+  }
+
+  visitLiteralExpr(expr) {
+    if (expr.value === null) return "nil";
+    return String(expr.value);
+  }
+
+  visitGroupingExpr(expr) {
+    return this.parenthesize("group", expr.expression);
+  }
+
+  visitUnaryExpr(expr) {
+    return this.parenthesize(expr.operator.lexeme, expr.right);
+  }
+
+  visitBinaryExpr(expr) {
+    return this.parenthesize(expr.operator.lexeme, expr.left, expr.right);
+  }
+
+  parenthesize(name, ...exprs) {
+    let builder = `(${name}`;
+    for (const expr of exprs) {
+      builder += ` ${expr.accept(this)}`;
+    }
+    builder += ")";
+    return builder;
+  }
+}
+
+if (command === "tokenize") {
+  const fileContent = fs.readFileSync(filename, "utf8");
+  const scanner = new Scanner(fileContent);
+  const tokens = scanner.scanTokens();
+
+  for (const token of tokens) {
+    console.log(token.toString());
+  }
+
+  if (scanner.hadError) {
+    process.exit(65);
+  }
+} else if (command === "parse") {
+  const fileContent = fs.readFileSync(filename, "utf8");
+  const scanner = new Scanner(fileContent);
+  const tokens = scanner.scanTokens();
+  const parser = new Parser(tokens);
+  const expression = parser.parse();
+  const printer = new AstPrinter();
+  console.log(printer.print(expression));
+} else {
+  console.error(`Usage: Unknown command: ${command}`);
+  process.exit(1);
 }
