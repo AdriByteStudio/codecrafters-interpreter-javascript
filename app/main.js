@@ -1649,7 +1649,9 @@ class Resolver {
     this.scopes[this.scopes.length - 1].set("this", true);
 
     for (const method of stmt.methods) {
-      this.resolveFunction(method, "METHOD");
+      const declaration =
+        method.name.lexeme === "init" ? "INITIALIZER" : "METHOD";
+      this.resolveFunction(method, declaration);
     }
 
     this.endScope();
@@ -1678,6 +1680,10 @@ class Resolver {
   visitReturnStmt(stmt) {
     if (this.currentFunction === "NONE") {
       loxError(stmt.keyword, "Can't return from top-level code.");
+    }
+
+    if (this.currentFunction === "INITIALIZER" && stmt.value !== null) {
+      loxError(stmt.keyword, "Can't return a value from an initializer.");
     }
 
     if (stmt.value !== null) {
