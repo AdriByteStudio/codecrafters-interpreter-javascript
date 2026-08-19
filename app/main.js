@@ -357,6 +357,7 @@ class Binary extends Expr {
 }
 
 let hadError = false;
+let hadRuntimeError = false;
 
 function report(line, where, message) {
   console.error(`[line ${line}] Error${where}: ${message}`);
@@ -369,6 +370,12 @@ function loxError(token, message) {
   } else {
     report(token.line, ` at '${token.lexeme}'`, message);
   }
+}
+
+function runtimeError(error) {
+  console.error(error.message);
+  console.error(`[line ${error.token.line}]`);
+  hadRuntimeError = true;
 }
 
 class ParseError extends Error {}
@@ -716,7 +723,19 @@ if (command === "tokenize") {
   }
 
   const interpreter = new Interpreter();
-  console.log(interpreter.interpret(expression));
+  try {
+    console.log(interpreter.interpret(expression));
+  } catch (error) {
+    if (error instanceof RuntimeError) {
+      runtimeError(error);
+    } else {
+      throw error;
+    }
+  }
+
+  if (hadRuntimeError) {
+    process.exit(70);
+  }
 } else {
   console.error(`Usage: Unknown command: ${command}`);
   process.exit(1);
