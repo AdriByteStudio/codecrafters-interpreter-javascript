@@ -367,6 +367,18 @@ class Variable extends Expr {
   }
 }
 
+class Assign extends Expr {
+  constructor(name, value) {
+    super();
+    this.name = name;
+    this.value = value;
+  }
+
+  accept(visitor) {
+    return visitor.visitAssignExpr(this);
+  }
+}
+
 // Statement AST nodes
 class Stmt {}
 
@@ -440,6 +452,15 @@ class Environment {
   get(name) {
     if (this.values.has(name.lexeme)) {
       return this.values.get(name.lexeme);
+    }
+
+    throw new RuntimeError(name, `Undefined variable '${name.lexeme}'.`);
+  }
+
+  assign(name, value) {
+    if (this.values.has(name.lexeme)) {
+      this.values.set(name.lexeme, value);
+      return;
     }
 
     throw new RuntimeError(name, `Undefined variable '${name.lexeme}'.`);
@@ -537,7 +558,25 @@ class Parser {
   }
 
   expression() {
-    return this.equality();
+    return this.assignment();
+  }
+
+  assignment() {
+    const expr = this.equality();
+
+    if (this.match(TokenType.EQUAL)) {
+      const equals = this.previous();
+      const value = this.assignment();
+
+      if (expr instanceof Variable) {
+        const name = expr.name;
+        return new Assign(name, value);
+      }
+
+      this.error(equals, "Invalid assignment target.");
+    }
+
+    return expr;
   }
 
   equality() {
@@ -701,6 +740,10 @@ class AstPrinter {
     return expr.name.lexeme;
   }
 
+  visitAssignExpr(expr) {
+    return this.parenthesize("=", new Variable(expr.name), expr.value);
+  }
+
   parenthesize(name, ...exprs) {
     let builder = `(${name}`;
     for (const expr of exprs) {
@@ -769,6 +812,12 @@ class Interpreter {
 
   visitVariableExpr(expr) {
     return this.environment.get(expr.name);
+  }
+
+  visitAssignExpr(expr) {
+    const value = this.evaluate(expr.value);
+    this.environment.assign(expr.name, value);
+    return value;
   }
 
   visitGroupingExpr(expr) {
